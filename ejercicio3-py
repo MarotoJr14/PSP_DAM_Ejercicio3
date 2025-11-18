@@ -1,0 +1,141 @@
+# ejercicio3.py
+import threading
+import time
+import random
+import os
+from datetime import datetime
+
+FILENAME = "fichero_grande.txt"
+LINES = 50000
+KEYWORD = "ERROR"
+SLEEP_PER_LINE = 0.0005  # simula procesamiento lento (ajusta si quieres más/menos tiempo)
+ERROR_PROBABILITY = 0.05  # probabilidad de que una línea contenga "ERROR" (5%)
+
+# Variable compartida
+shared_counter = {"count": 0}
+semaphore = threading.Semaphore(1)
+# una flag para indicar cuando el hilo ha terminado
+worker_done = threading.Event()
+
+def generar_fichero_si_no_existe(filename=FILENAME, lines=LINES, err_prob=ERROR_PROBABILITY):
+    if os.path.exists(filename):
+        print(f"[INFO] El fichero '{filename}' ya existe — no se regeneará.")
+        return
+    print(f"[INFO] Generando fichero '{filename}' con {lines} líneas (esto puede tardar unos segundos)...")
+    with open(filename, "w", encoding="utf-8") as f:
+        for i in range(1, lines + 1):
+            # genera línea aleatoria; algunos contienen la palabra clave
+            if random.random() < err_prob:
+                # colocamos la palabra ERROR en diferentes posiciones
+                line = f"{i}: {random.choice(['INFO','WARNING','NOTICE'])} - Aquí hay {KEYWORD} en el log número {i}\n"
+            else:
+                line = f"{i}: {random.choice(['INFO','DEBUG','TRACE'])} - Línea normal sin la palabra clave.\n"
+            f.write(line)
+    print("[INFO] Fichero generado.")
+
+def worker_count_errors(filename=FILENAME, keyword=KEYWORD, sleep_per_line=SLEEP_PER_LINE):
+    """
+    Hilo secundario: lee el fichero línea por línea y cuenta cuántas contienen 'keyword'.
+    Protege el acceso al contador con un semáforo.
+    Al terminar, marca worker_done.
+    """
+    try:
+        total_lines = 0
+        with open(filename, "r", encoding="utf-8") as f:
+            for line in f:
+                total_lines += 1
+                # simulamos que procesar cada línea lleva un poco de tiempo
+                time.sleep(sleep_per_line)
+
+                if keyword in line:
+                    # proteger acceso a shared_counter
+                    semaphore.acquire()
+                    try:
+                        shared_counter["count"] += 1
+                    finally:
+                        semaphore.release()
+        print(f"\n[HILO] Lectura terminada. Líneas procesadas: {total_lines}.\nPulse 'ENTER' para continuar.")
+    except FileNotFoundError:
+        print(f"[HILO] Error: no se encontró el fichero '{filename}'.")
+    finally:
+        worker_done.set()
+
+def menu_loop():
+    """
+    Menú principal — funciona mientras el hilo está corriendo.
+    Cuando el hilo termina, mostramos el resultado final y salimos.
+    """
+    menu_text = (
+        "\n====================\n"
+        "   MENÚ PRINCIPAL   \n"
+        "==================== \n"
+        "1) Mostrar hora actual\n"
+        "2) Mostrar mensaje\n"
+        "3) Comprobar estado del conteo\n"
+        "4) Forzar salida (termina el programa sin esperar al hilo)\n"
+        "El programa seguirá funcionando mientras el hilo secundario lea el fichero.\n"
+        "El resultado final se mostrará automáticamente cuando el hilo termine.\n"
+        "Elige una opción: "
+    )
+
+    while True:
+        # Si el hilo ya terminó, mostramos resultado y salimos
+        if worker_done.is_set():
+            # tomamos el valor del contador bajo semáforo para garantizar consistencia
+            semaphore.acquire()
+            try:
+                final_count = shared_counter["count"]
+            finally:
+                semaphore.release()
+            print(f"\n>>> HILO FINALIZADO: {final_count} líneas contienen la palabra '{KEYWORD}'.")
+            break
+
+        # menú interactivo (no bloquea el hilo secundario)
+        try:
+            choice = input(menu_text).strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[MAIN] Entrada interrumpida. Saliendo.")
+            break
+
+        if choice == "1":
+            print("[MAIN] Hora actual:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        elif choice == "2":
+            print("[MAIN] ¡Hola! Este es un mensaje desde el hilo principal.")
+        elif choice == "3":
+            # mostrar valor actual del contador sin bloquear demasiado tiempo
+            semaphore.acquire()
+            try:
+                current = shared_counter["count"]
+            finally:
+                semaphore.release()
+            alive = "sí" if not worker_done.is_set() else "no"
+            print(f"[MAIN] Conteo actual: {current} lineas contienen la palabra {KEYWORD}.\n[MAIN] ¿Hilo aún corriendo? {alive}")
+        elif choice == "4":
+            print("[MAIN] Forzando salida del programa (el hilo secundario seguirá si se deja, pero la aplicación termina).")
+            # salir abruptamente — nota: esto terminará el proceso sin esperar
+            os._exit(0)
+        else:
+            print("[MAIN] Opción no válida. Prueba otra vez.")
+
+def main():
+    print("=== Ejercicio práctico 3 — contador de 'ERROR' con hilos y semáforo ===")
+
+    generar_fichero_si_no_existe()
+
+    # lanzamos el hilo secundario
+    t = threading.Thread(target=worker_count_errors, args=(FILENAME, KEYWORD, SLEEP_PER_LINE), daemon=True)
+    t.start()
+    print("[MAIN] Hilo secundario lanzado. El hilo principal ya puede ejecutar el menú sin esperar.")
+
+    # bucle menú principal
+    menu_loop()
+
+    # (opcional) esperar al hilo antes de salir definitivamente para limpieza si no usamos os._exit
+    if t.is_alive():
+        print("[MAIN] Esperando al hilo para terminar...")
+        t.join()
+
+    print("[MAIN] Programa finalizado correctamente.")
+
+if __name__ == "__main__":
+    main()
