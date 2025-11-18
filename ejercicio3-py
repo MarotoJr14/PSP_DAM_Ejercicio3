@@ -8,7 +8,7 @@ from datetime import datetime
 FILENAME = "fichero_grande.txt"
 LINES = 50000
 KEYWORD = "ERROR"
-SLEEP_PER_LINE = 0.0005  # simula procesamiento lento (ajusta si quieres más/menos tiempo)
+SLEEP_PER_LINE = 0.0001  # simula procesamiento lento (ajusta si quieres más/menos tiempo)
 ERROR_PROBABILITY = 0.05  # probabilidad de que una línea contenga "ERROR" (5%)
 
 # Variable compartida
@@ -139,3 +139,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
